@@ -40,13 +40,13 @@ export function WorkflowProgress({
     filter: [],
     output: [],
     spark_config: [],
-    completion: []
+    completion: [],
   })
-  
+
   // Use refs to track previous values and prevent unnecessary updates
   const prevNodeIdRef = useRef<string | null>(null)
   const prevStepRef = useRef<string>("")
-  
+
   // Show modal when execution starts
   useEffect(() => {
     if (isExecuting) {
@@ -57,10 +57,10 @@ export function WorkflowProgress({
         filter: [],
         output: [],
         spark_config: [],
-        completion: []
+        completion: [],
       })
       setGeneratingSection(null)
-      
+
       // Initialize steps based on nodes
       const workflowSteps = nodes
         .filter((node) => node.type === "custom" && node.data.category === "demo-file-conversion")
@@ -79,30 +79,28 @@ export function WorkflowProgress({
 
   // Handle node and step changes
   useEffect(() => {
-    if (!isExecuting || !currentNodeId || !visible) return;
-    
+    if (!isExecuting || !currentNodeId || !visible) return
+
     // Skip update if nothing changed
     if (prevNodeIdRef.current === currentNodeId && prevStepRef.current === currentStep) {
-      return;
+      return
     }
-    
+
     // Update refs
-    prevNodeIdRef.current = currentNodeId;
-    prevStepRef.current = currentStep;
-    
+    prevNodeIdRef.current = currentNodeId
+    prevStepRef.current = currentStep
+
     // Update step status
     setSteps((prevSteps) =>
       prevSteps.map((step) => {
         if (step.id === currentNodeId) {
           return { ...step, status: "processing" }
-        } else if (
-          prevSteps.findIndex((s) => s.id === currentNodeId) > prevSteps.findIndex((s) => s.id === step.id)
-        ) {
+        } else if (prevSteps.findIndex((s) => s.id === currentNodeId) > prevSteps.findIndex((s) => s.id === step.id)) {
           return { ...step, status: "complete" }
         }
         return step
       }),
-    );
+    )
 
     // Calculate progress
     const totalSteps = steps.length * 4 // 4 sub-steps per node
@@ -143,20 +141,15 @@ export function WorkflowProgress({
               ],
             },
           }
-          
+
           setRequestData((prev) => ({
             ...prev,
-            input: inputData
+            input: inputData,
           }))
-          
+
           // Generate text for input section
           setGeneratingSection("input")
-          simulateTextGeneration(
-            JSON.stringify(inputData, null, 2), 
-            "input", 
-            () => setGeneratingSection(null)
-          )
-          
+          simulateTextGeneration(JSON.stringify(inputData, null, 2), "input", () => setGeneratingSection(null))
         } else if (node.data.type === "filterNode") {
           const formData = node.data.formData || {}
           const filterData = {
@@ -172,20 +165,15 @@ export function WorkflowProgress({
               },
             ],
           }
-          
+
           setRequestData((prev) => ({
             ...prev,
-            filter: filterData
+            filter: filterData,
           }))
-          
+
           // Generate text for filter section
           setGeneratingSection("filter")
-          simulateTextGeneration(
-            JSON.stringify(filterData, null, 2), 
-            "filter", 
-            () => setGeneratingSection(null)
-          )
-          
+          simulateTextGeneration(JSON.stringify(filterData, null, 2), "filter", () => setGeneratingSection(null))
         } else if (node.data.type === "writeFileNode") {
           const formData = node.data.formData || {}
           const outputData = {
@@ -195,7 +183,7 @@ export function WorkflowProgress({
             mode: "overwrite",
             options: {},
           }
-          
+
           const sparkConfigData = {
             driver_cores: 1,
             driver_memory: "512m",
@@ -203,69 +191,59 @@ export function WorkflowProgress({
             executor_cores: 1,
             executor_memory: "512m",
           }
-          
+
           setRequestData((prev) => ({
             ...prev,
             output: outputData,
-            spark_config: sparkConfigData
+            spark_config: sparkConfigData,
           }))
-          
+
           // Generate text for output section
           setGeneratingSection("output")
-          simulateTextGeneration(
-            JSON.stringify(outputData, null, 2), 
-            "output", 
-            () => {
-              // After output is generated, start generating spark config
-              setGeneratingSection("spark_config")
-              simulateTextGeneration(
-                JSON.stringify(sparkConfigData, null, 2), 
-                "spark_config", 
-                () => {
-                  setGeneratingSection(null)
-                  
-                  // All nodes processed, prepare for API call
-                  const allNodesComplete = steps.every((step) =>
-                    step.id === currentNodeId ? step.status === "processing" : step.status === "complete"
-                  )
+          simulateTextGeneration(JSON.stringify(outputData, null, 2), "output", () => {
+            // After output is generated, start generating spark config
+            setGeneratingSection("spark_config")
+            simulateTextGeneration(JSON.stringify(sparkConfigData, null, 2), "spark_config", () => {
+              setGeneratingSection(null)
 
-                  if (allNodesComplete) {
-                    // Complete execution
-                    setTimeout(() => {
-                      setProgress(100)
-                      setExecutionComplete(true)
-                      onAllNodesProcessed({
-                        input: requestData.input,
-                        filter: requestData.filter,
-                        output: outputData,
-                        spark_config: sparkConfigData
-                      })
-                      
-                      // Mark all steps as complete
-                      setSteps(prevSteps => 
-                        prevSteps.map(step => ({ ...step, status: "complete" }))
-                      )
-                      
-                      // Generate completion message
-                      setGeneratingSection("completion")
-                      simulateTextGeneration(
-                        [
-                          "// Execute API Call",
-                          "async function executeWorkflow() {",
-                          "  const response = await api.post('/workflow/execute', requestBody);",
-                          "  return response.data;",
-                          "}",
-                          "// ✓ Workflow execution completed successfully"
-                        ].join("\n"),
-                        "completion",
-                        () => setGeneratingSection(null)
-                      )
-                    }, 1000)
-                  }
-                }
+              // All nodes processed, prepare for API call
+              const allNodesComplete = steps.every((step) =>
+                step.id === currentNodeId ? step.status === "processing" : step.status === "complete",
               )
-            }
-          )
+
+              if (allNodesComplete) {
+                // Complete execution
+                setTimeout(() => {
+                  setProgress(100)
+                  setExecutionComplete(true)
+                  onAllNodesProcessed({
+                    input: requestData.input,
+                    filter: requestData.filter,
+                    output: outputData,
+                    spark_config: sparkConfigData,
+                  })
+
+                  // Mark all steps as complete
+                  setSteps((prevSteps) => prevSteps.map((step) => ({ ...step, status: "complete" })))
+
+                  // Generate completion message
+                  setGeneratingSection("completion")
+                  simulateTextGeneration(
+                    [
+                      "// Execute API Call",
+                      "async function executeWorkflow() {",
+                      "  const response = await api.post('/workflow/execute', requestBody);",
+                      "  return response.data;",
+                      "}",
+                      "// ✓ Workflow execution completed successfully",
+                    ].join("\n"),
+                    "completion",
+                    () => setGeneratingSection(null),
+                  )
+                }, 1000)
+              }
+            })
+          })
         }
       }
     }
@@ -276,16 +254,16 @@ export function WorkflowProgress({
     // Split the content into lines
     const lines = content.split("\n")
     let currentIndex = 0
-    
+
     // Function to add a line with delay
     const addLineWithDelay = () => {
       if (currentIndex < lines.length) {
-        setGeneratedContent(prev => ({
+        setGeneratedContent((prev) => ({
           ...prev,
-          [section]: [...prev[section], lines[currentIndex]]
+          [section]: [...prev[section], lines[currentIndex]],
         }))
         currentIndex++
-        
+
         // Random delay between 50-150ms for more natural typing feel
         const delay = Math.floor(Math.random() * 100) + 50
         setTimeout(addLineWithDelay, delay)
@@ -294,7 +272,7 @@ export function WorkflowProgress({
         onComplete()
       }
     }
-    
+
     // Start generating
     addLineWithDelay()
   }
@@ -325,7 +303,12 @@ export function WorkflowProgress({
             <Laptop className="h-5 w-5 text-blue-600" />
             <h2 className="text-xl font-semibold text-gray-800">Workflow Execution</h2>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleClose} className="rounded-full text-gray-500 hover:text-gray-700">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClose}
+            className="rounded-full text-gray-500 hover:text-gray-700"
+          >
             <X className="h-5 w-5" />
             <span className="sr-only">Close</span>
           </Button>
@@ -339,22 +322,22 @@ export function WorkflowProgress({
                 <span className="text-sm font-medium text-gray-700">Execution Progress</span>
                 <span className="text-sm font-medium text-gray-700">{Math.round(progress)}%</span>
               </div>
-              <Progress 
-                value={progress} 
-                className="h-2.5 bg-gray-100" 
+              <Progress
+                value={progress}
+                className="h-2.5 bg-gray-100"
                 indicatorClassName={executionComplete ? "bg-green-500" : "bg-blue-500"}
               />
             </div>
 
             <div className="space-y-3">
               {steps.map((step, index) => (
-                <div 
-                  key={step.id} 
+                <div
+                  key={step.id}
                   className={`flex items-start rounded-md p-3 border ${
-                    step.status === "processing" 
-                      ? "bg-blue-50 border-blue-200" 
-                      : step.status === "complete" 
-                        ? "bg-green-50 border-green-200" 
+                    step.status === "processing"
+                      ? "bg-blue-50 border-blue-200"
+                      : step.status === "complete"
+                        ? "bg-green-50 border-green-200"
                         : "bg-gray-50 border-gray-200"
                   }`}
                 >
@@ -413,7 +396,7 @@ export function WorkflowProgress({
               <Code className="h-5 w-5 mr-2 text-blue-600" />
               API Request Builder
             </div>
-            
+
             <div className="bg-white rounded-lg border shadow-sm">
               <div className="p-3 bg-gray-100 border-b flex items-center justify-between">
                 <div className="font-medium text-gray-700">Request Configuration</div>
@@ -427,14 +410,14 @@ export function WorkflowProgress({
               <div className="p-4 font-mono text-sm overflow-auto max-h-[400px] bg-slate-900 text-gray-100 rounded-b-lg">
                 <div className="text-blue-400 mb-1">// API Request being constructed</div>
                 <div className="text-pink-400">{"const requestBody = {"}</div>
-                
+
                 {/* Input Section */}
                 <div className="pl-4">
                   <div className="text-amber-400 flex items-center">
                     {"input: {"}
                     <div className={getCursorStyle("input")}></div>
                   </div>
-                  
+
                   {generatedContent.input.length > 0 && (
                     <div className="pl-4 text-gray-300">
                       {generatedContent.input.map((line, index) => (
@@ -445,13 +428,13 @@ export function WorkflowProgress({
                     </div>
                   )}
                   <div className="text-amber-400">{"},"}</div>
-                  
+
                   {/* Filter Section */}
                   <div className="text-amber-400 mt-2 flex items-center">
                     {"filter: {"}
                     <div className={getCursorStyle("filter")}></div>
                   </div>
-                  
+
                   {generatedContent.filter.length > 0 && (
                     <div className="pl-4 text-gray-300">
                       {generatedContent.filter.map((line, index) => (
@@ -462,13 +445,13 @@ export function WorkflowProgress({
                     </div>
                   )}
                   <div className="text-amber-400">{"},"}</div>
-                  
+
                   {/* Output Section */}
                   <div className="text-amber-400 mt-2 flex items-center">
                     {"output: {"}
                     <div className={getCursorStyle("output")}></div>
                   </div>
-                  
+
                   {generatedContent.output.length > 0 && (
                     <div className="pl-4 text-gray-300">
                       {generatedContent.output.map((line, index) => (
@@ -479,13 +462,13 @@ export function WorkflowProgress({
                     </div>
                   )}
                   <div className="text-amber-400">{"},"}</div>
-                  
+
                   {/* Spark Config Section */}
                   <div className="text-amber-400 mt-2 flex items-center">
                     {"spark_config: {"}
                     <div className={getCursorStyle("spark_config")}></div>
                   </div>
-                  
+
                   {generatedContent.spark_config.length > 0 && (
                     <div className="pl-4 text-gray-300">
                       {generatedContent.spark_config.map((line, index) => (
@@ -497,22 +480,24 @@ export function WorkflowProgress({
                   )}
                   <div className="text-amber-400">{"},"}</div>
                 </div>
-                
+
                 <div className="text-pink-400">{"};"}</div>
-                
+
                 {/* API call simulation */}
                 {generatedContent.completion.length > 0 && (
                   <div className="mt-4 border-t border-gray-700 pt-2 text-gray-300">
                     {generatedContent.completion.map((line, index) => (
-                      <div 
-                        key={`exec-${index}`} 
+                      <div
+                        key={`exec-${index}`}
                         className={`whitespace-pre ${
-                          typeof line === "string" && line.startsWith("//") ? "text-blue-400" :
-                          typeof line === "string" && line.includes("function") ? "text-green-400" :
-                          typeof line === "string" && line.includes("✓") ? "text-green-400" : ""
+                          typeof line === "string" && line.startsWith("//")
+                            ? "text-blue-400"
+                            : typeof line === "string" && line.includes("function")
+                              ? "text-green-400"
+                              : typeof line === "string" && line.includes("✓")
+                                ? "text-green-400"
+                                : ""
                         }`}
-                        
-                        
                       >
                         {line}
                       </div>
@@ -522,7 +507,7 @@ export function WorkflowProgress({
                 )}
               </div>
             </div>
-            
+
             {/* Typing indicator during generation */}
             {generatingSection && (
               <div className="flex items-center space-x-1 mt-2 text-blue-600 text-sm">
@@ -542,18 +527,10 @@ export function WorkflowProgress({
             </div>
           )}
           <div className="flex space-x-3">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleClose}
-            >
+            <Button variant="outline" size="sm" onClick={handleClose}>
               Close
             </Button>
-            <Button 
-              size="sm" 
-              className="bg-blue-600 hover:bg-blue-700"
-              disabled={!executionComplete}
-            >
+            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={!executionComplete}>
               <ExternalLink className="w-4 h-4 mr-1" />
               View Results
             </Button>

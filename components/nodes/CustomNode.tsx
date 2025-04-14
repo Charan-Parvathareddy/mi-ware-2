@@ -1,7 +1,7 @@
 "use client"
 
 import { Handle, Position, useReactFlow } from "reactflow"
-import { Check, X } from "lucide-react"
+import { Check, X, AlertTriangle } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 interface NodeData {
@@ -33,17 +33,16 @@ export function CustomNode({ id, data, selected }: CustomNodeProps) {
   }
 
   // Determine node style based on category
-  let nodeStyle = "bg-white"
+  const nodeStyle = "bg-white"
   let iconBgColor = "bg-blue-50"
   let iconTextColor = "text-blue-500"
+  let borderColor = selected ? "border-blue-400" : "border-gray-200"
 
   if (data.category === "connector") {
     if (data.type.includes("Target")) {
-      nodeStyle = "bg-white"
       iconBgColor = "bg-amber-50"
       iconTextColor = "text-amber-600"
     } else {
-      nodeStyle = "bg-white"
       iconBgColor = "bg-green-50"
       iconTextColor = "text-green-600"
     }
@@ -65,13 +64,20 @@ export function CustomNode({ id, data, selected }: CustomNodeProps) {
     iconBgColor = "bg-orange-50"
     iconTextColor = "text-orange-600"
   } else if (data.category === "file-conversion") {
-    iconBgColor = "bg-teal-50"
-    iconTextColor = "text-teal-600"
+    iconBgColor = "bg-blue-50"
+    iconTextColor = "text-blue-600"
+  }
+
+  // If there's an error, use red styling
+  if (data.error) {
+    borderColor = "border-red-500"
+  } else if (data.executed) {
+    borderColor = "border-green-500"
   }
 
   return (
     <div
-      className={`relative flex flex-col items-center justify-center w-[120px] h-[80px] border-2 ${selected ? "border-blue-400" : "border-gray-200"} rounded-md ${nodeStyle} shadow-sm`}
+      className={`relative flex flex-col items-center justify-center w-[120px] h-[80px] border-2 ${borderColor} rounded-xl ${nodeStyle} shadow-sm`}
       data-category={data.category}
       data-id={id}
     >
@@ -83,7 +89,7 @@ export function CustomNode({ id, data, selected }: CustomNodeProps) {
 
       {data.executed && data.error && (
         <div className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 z-10" title={data.error}>
-          <X className="w-3 h-3" />
+          <AlertTriangle className="w-3 h-3" />
         </div>
       )}
 

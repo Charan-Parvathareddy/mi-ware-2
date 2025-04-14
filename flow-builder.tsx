@@ -16,13 +16,14 @@ import ReactFlow, {
   Panel,
 } from "reactflow"
 import "reactflow/dist/style.css"
-import { Play, Save, Upload } from "lucide-react"
+import { Play, Save, Upload, StopCircle, Plus } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Modal } from "@/components/ui/modal"
 import { StartNode } from "./components/nodes/StartNode"
 import { EndNode } from "./components/nodes/EndNode"
 import { CustomNode } from "./components/nodes/CustomNode"
+import { UploadFileNode } from "./components/nodes/UploadFileNode"
 import { CollapsibleSidebar } from "./components/sidebar/CollapsibleSidebar"
 import { isValidConnection } from "./utils/connection-utils"
 import { DemoFileConversionProperties } from "./components/demo-file-conversion/DemoFileConversionProperties"
@@ -30,8 +31,12 @@ import { WorkflowProgress } from "./components/demo-file-conversion/WorkflowProg
 import { ApiVisualizer } from "./components/demo-file-conversion/ApiVisualizer"
 import { SaveWorkflowDialog } from "./components/demo-file-conversion/SaveWorkflowDialog"
 import { WorkflowInfoModal } from "./components/demo-file-conversion/WorkflowInfoModal"
+import { CreateDagModal } from "./components/workflow/CreateDagModal"
 import { LogsDashboard } from "./components/logs/LogsDashboard"
 import { getTemplate } from "./components/demo-file-conversion/template-manager"
+import { LoginPage } from "./components/auth/login-page"
+import { ApiMonitor } from "./components/api-monitor/api-monitor"
+import { initializeDataService, getDagId, getConfigId, setConfigId } from "@/data/data-service"
 
 // Define props interface for the components
 interface FlowBuilderProps {
@@ -69,6 +74,7 @@ export function FlowBuilderWithProvider({ onNodeSelect }: FlowBuilderProps) {
 }
 
 function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
@@ -78,32 +84,70 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
   const [showApiVisualizer, setShowApiVisualizer] = useState(false)
   const [apiRequestData, setApiRequestData] = useState<any>(null)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showCreateDagModal, setShowCreateDagModal] = useState(false)
   const [savedWorkflows, setSavedWorkflows] = useState<Workflow[]>([])
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null)
   const [showWorkflowInfo, setShowWorkflowInfo] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
+  const [showApiMonitor, setShowApiMonitor] = useState(false)
+  const [currentWorkflowName, setCurrentWorkflowName] = useState<string>("")
+  const [executionPhase, setExecutionPhase] = useState<number>(0)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { project, getNodes, getEdges } = useReactFlow()
 
+  // Initialize with just start and end nodes
   useEffect(() => {
-    // Load the file conversion workflow template by default
-    const template = getTemplate("fileConversionWorkflow")
-    if (template) {
-      setNodes(template.nodes)
-      setEdges(template.edges)
-    }
+    if (isAuthenticated) {
+      // Initialize data service
+      initializeDataService()
 
-    // Load saved workflows from localStorage
-    const savedWorkflowsStr = localStorage.getItem("savedWorkflows")
-    if (savedWorkflowsStr) {
-      try {
-        const parsedWorkflows = JSON.parse(savedWorkflowsStr)
-        setSavedWorkflows(parsedWorkflows)
-      } catch (error) {
-        console.error("Error loading saved workflows:", error)
+      // Create basic start and end nodes
+      const initialNodes: Node[] = [
+        {
+          id: "start",
+          type: "start",
+          position: { x: 250, y: 250 },
+          data: {},
+        },
+        {
+          id: "end",
+          type: "end",
+          position: { x: 600, y: 250 },
+          data: {},
+        },
+      ]
+
+      setNodes(initialNodes)
+
+      // Show API monitor after login
+      setShowApiMonitor(true)
+
+      // Load saved workflows from localStorage
+      const savedWorkflowsStr = localStorage.getItem("savedWorkflows")
+      if (savedWorkflowsStr) {
+        try {
+          const parsedWorkflows = JSON.parse(savedWorkflowsStr)
+          setSavedWorkflows(parsedWorkflows)
+        } catch (error) {
+          console.error("Error loading saved workflows:", error)
+        }
       }
     }
-  }, [setNodes, setEdges])
+  }, [isAuthenticated, setNodes])
+
+  // Listen for node update events from the UploadFileNode
+  useEffect(() => {
+    const handleNodeUpdate = (event: CustomEvent) => {
+      const { id, data } = event.detail
+      setNodes((nodes) => nodes.map((node) => (node.id === id ? { ...node, data: { ...node.data, ...data } } : node)))
+    }
+
+    document.addEventListener("node:update", handleNodeUpdate as EventListener)
+
+    return () => {
+      document.removeEventListener("node:update", handleNodeUpdate as EventListener)
+    }
+  }, [setNodes])
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -151,7 +195,7 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
 
           const newNode = {
             id: `${data.type}-${nodes.length + 1}`,
-            type: "custom",
+            type: data.type === "uploadFile" ? "uploadFile" : "custom",
             position,
             data: {
               label: data.label,
@@ -176,6 +220,7 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
       custom: CustomNode,
       start: StartNode,
       end: EndNode,
+      uploadFile: UploadFileNode,
     }),
     [],
   )
@@ -200,7 +245,7 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
 
       const newNode = {
         id: `${nodeType}-${nodes.length + 1}`,
-        type: "custom",
+        type: nodeType === "uploadFile" ? "uploadFile" : "custom",
         position,
         data: {
           label,
@@ -262,10 +307,29 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
 
   const handleApiVisualizerComplete = useCallback(() => {
     setShowApiVisualizer(false)
-    setIsExecuting(false)
-    setCurrentNodeId(null)
-    setCurrentStep("")
-  }, [])
+
+    // If we're in the middle of a multi-phase execution, continue to the next phase
+    if (executionPhase === 1) {
+      // After first API call completes, start the second one (update DAG)
+      executeUpdateDag()
+    } else if (executionPhase === 2) {
+      // After second API call completes, start the third one (trigger run)
+      executeTriggerRun()
+    } else if (executionPhase === 3) {
+      // After third API call completes, finish the execution
+      setIsExecuting(false)
+      setCurrentNodeId(null)
+      setCurrentStep("")
+      setExecutionPhase(0)
+      alert("Workflow execution completed successfully!")
+    } else {
+      // Normal completion
+      setIsExecuting(false)
+      setCurrentNodeId(null)
+      setCurrentStep("")
+      setExecutionPhase(0)
+    }
+  }, [executionPhase])
 
   // Helper function to save files
   function saveAs(blob: Blob, filename: string) {
@@ -281,14 +345,52 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
     }, 100)
   }
 
+  const handleCreateDag = useCallback(async (name: string, schedule: string) => {
+    try {
+      // Set the current workflow name for later use when saving
+      setCurrentWorkflowName(name)
+
+      // Make the actual API call to create a DAG
+      const response = await fetch("http://localhost:3002/dags/", {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          schedule,
+          active: true,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to create workflow: ${response.status} ${response.statusText}`)
+      }
+
+      const result = await response.json()
+
+      // Show success message
+      alert(`Workflow "${name}" created successfully!`)
+
+      return result
+    } catch (error) {
+      console.error("Error creating DAG:", error)
+      throw error
+    }
+  }, [])
+
   const handleSaveWorkflow = useCallback(
     (name: string) => {
+      // Use the current workflow name if it was set from creating a DAG
+      const workflowName = currentWorkflowName || name
+
       const currentNodes = getNodes()
       const currentEdges = getEdges()
 
       const newWorkflow: Workflow = {
         id: `workflow-${Date.now()}`,
-        name,
+        name: workflowName,
         createdAt: new Date().toISOString(),
         nodes: currentNodes,
         edges: currentEdges,
@@ -309,16 +411,16 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
       try {
         const workflowData = JSON.stringify(newWorkflow, null, 2)
         const blob = new Blob([workflowData], { type: "application/json" })
-        saveAs(blob, `${name.replace(/\s+/g, "-").toLowerCase()}.json`)
+        saveAs(blob, `${workflowName.replace(/\s+/g, "-").toLowerCase()}.json`)
 
         // Show success message
-        alert(`Workflow "${name}" saved successfully. The file has been downloaded to your computer.`)
+        alert(`Workflow "${workflowName}" saved successfully. The file has been downloaded to your computer.`)
       } catch (error) {
         console.error("Error saving workflow file:", error)
         alert("There was an error saving the workflow file. Please try again.")
       }
     },
-    [getNodes, getEdges, savedWorkflows],
+    [getNodes, getEdges, savedWorkflows, currentWorkflowName],
   )
 
   const handleLoadWorkflowFromFile = useCallback(
@@ -343,6 +445,9 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
           setNodes(workflow.nodes)
           setEdges(workflow.edges)
 
+          // Set the current workflow name
+          setCurrentWorkflowName(workflow.name)
+
           // Reset the file input
           if (event.target) event.target.value = ""
 
@@ -363,6 +468,7 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
       if (workflow) {
         setNodes(workflow.nodes)
         setEdges(workflow.edges)
+        setCurrentWorkflowName(workflow.name)
       }
     },
     [savedWorkflows, setNodes, setEdges],
@@ -370,9 +476,10 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
 
   const handleViewWorkflowInfo = useCallback(
     (workflowId: string) => {
+      let workflow
       if (workflowId === "default") {
         // Show info for default workflow
-        setSelectedWorkflow({
+        workflow = {
           id: "default",
           name: "File Conversion",
           createdAt: "2025-04-01T00:00:00.000Z",
@@ -383,21 +490,126 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
             recordsProcessed: 1250,
             successRate: 98.2,
           },
-        })
-      } else {
-        const workflow = savedWorkflows.find((w) => w.id === workflowId)
-        if (workflow) {
-          setSelectedWorkflow(workflow)
         }
+      } else {
+        workflow = savedWorkflows.find((w) => w.id === workflowId)
+        if (!workflow) return
       }
 
+      setSelectedWorkflow(workflow)
       setShowWorkflowInfo(true)
     },
-    [savedWorkflows],
+    [savedWorkflows, setShowWorkflowInfo, setSelectedWorkflow],
   )
+
+  // Function to execute the update DAG API call (second phase)
+  const executeUpdateDag = async () => {
+    setExecutionPhase(2)
+    setCurrentStep("updating dag")
+
+    try {
+      const dagId = getDagId()
+      const configId = getConfigId()
+
+      if (!dagId) {
+        throw new Error("No DAG ID found. Please create a workflow first.")
+      }
+
+      if (!configId) {
+        throw new Error("No config ID found. Please execute the workflow first.")
+      }
+
+      // Create the request body for updating the DAG
+      const requestBody = {
+        name: currentWorkflowName || "File Conversion Workflow",
+        schedule: "* * * * *",
+        dag_sequence: [
+          { id: "node_1", type: "start", config_id: configId, next: ["file_node_1"] },
+          { id: "file_node_1", type: "file_conversion", config_id: configId, next: ["node_2"] },
+          { id: "node_2", type: "end", config_id: configId, next: [] },
+        ],
+        active: true,
+        active_dag_run: 1,
+      }
+
+      setApiRequestData(requestBody)
+      setShowApiVisualizer(true)
+
+      // Make the API call
+      const response = await fetch(`http://localhost:3002/dags/${dagId}`, {
+        method: "PUT",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`)
+      }
+
+      await response.json()
+
+      // Update will be handled by handleApiVisualizerComplete
+    } catch (error) {
+      console.error("Error updating DAG:", error)
+      alert(`Error updating DAG: ${error instanceof Error ? error.message : "Unknown error"}`)
+      setIsExecuting(false)
+      setCurrentNodeId(null)
+      setCurrentStep("")
+      setExecutionPhase(0)
+    }
+  }
+
+  // Function to execute the trigger run API call (third phase)
+  const executeTriggerRun = async () => {
+    setExecutionPhase(3)
+    setCurrentStep("triggering run")
+
+    try {
+      const dagId = getDagId()
+
+      if (!dagId) {
+        throw new Error("No DAG ID found. Please create a workflow first.")
+      }
+
+      // Create the request body for triggering the run
+      const requestBody = {}
+
+      setApiRequestData(requestBody)
+      setShowApiVisualizer(true)
+
+      // Make the API call
+      const response = await fetch(`http://localhost:3002/dag_runs/${dagId}/trigger_run`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`)
+      }
+
+      await response.json()
+
+      // Completion will be handled by handleApiVisualizerComplete
+    } catch (error) {
+      console.error("Error triggering DAG run:", error)
+      alert(`Error triggering DAG run: ${error instanceof Error ? error.message : "Unknown error"}`)
+      setIsExecuting(false)
+      setCurrentNodeId(null)
+      setCurrentStep("")
+      setExecutionPhase(0)
+    }
+  }
 
   const executeWorkflow = useCallback(async () => {
     setIsExecuting(true)
+    setExecutionPhase(1) // Start with phase 1
 
     try {
       // Find start node and connected nodes
@@ -440,7 +652,186 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
 
       console.log(`Executing workflow with ${workflowNodes.length} nodes`)
 
-      // Execute each node in sequence with progress updates
+      // Check if this is a File Conversion workflow
+      const isFileConversionWorkflow = workflowNodes.some(
+        (node) =>
+          node.data?.type === "readFileNode" || node.data?.type === "filterNode" || node.data?.type === "writeFileNode",
+      )
+
+      if (isFileConversionWorkflow) {
+        // Collect data from all nodes
+        let inputData = {}
+        let filterData = {}
+        let outputData = {}
+
+        // Process each node to collect its configuration
+        for (const node of workflowNodes) {
+          if (node.data?.type === "readFileNode") {
+            const formData = node.data.formData || {}
+            inputData = {
+              provider: formData.provider || "local",
+              format: formData.format || "csv",
+              path: formData.path || "/app/mock_data/20250408_215503_test_records_2000.csv",
+              options: {
+                rowTag: "Record",
+                rootTag: "Records",
+              },
+              schema: {
+                fields: [
+                  { name: "Id", type: "string", nullable: false },
+                  { name: "Name", type: "string", nullable: false },
+                  { name: "AccountNumber", type: "string", nullable: false },
+                  { name: "Site", type: "string", nullable: true },
+                  { name: "Type", type: "string", nullable: true },
+                  { name: "Industry", type: "string", nullable: true },
+                  { name: "AnnualRevenue", type: "long", nullable: true },
+                  { name: "Rating", type: "string", nullable: true },
+                  { name: "Phone", type: "string", nullable: true },
+                  { name: "Fax", type: "string", nullable: true },
+                  { name: "Website", type: "string", nullable: true },
+                  { name: "TickerSymbol", type: "string", nullable: true },
+                  { name: "Ownership", type: "string", nullable: true },
+                  { name: "NumberOfEmployees", type: "integer", nullable: true },
+                ],
+              },
+            }
+          } else if (node.data?.type === "filterNode") {
+            // Use the filter criteria from the node's data if available
+            if (node.data.result?.filterCriteria) {
+              filterData = node.data.result.filterCriteria
+            } else {
+              // Otherwise, build it from the form data
+              const formData = node.data.formData || {}
+              const conditions = []
+
+              if (formData.revenueFilter) {
+                conditions.push({
+                  field: "AnnualRevenue",
+                  operation: "gt",
+                  value: formData.revenueValue || 1000000,
+                })
+              }
+
+              if (formData.industryFilter && (formData.technologyFilter || formData.healthcareFilter)) {
+                const industryConditions = []
+
+                if (formData.technologyFilter) {
+                  industryConditions.push({
+                    field: "Industry",
+                    operation: "eq",
+                    value: "Technology",
+                  })
+                }
+
+                if (formData.healthcareFilter) {
+                  industryConditions.push({
+                    field: "Industry",
+                    operation: "eq",
+                    value: "Healthcare",
+                  })
+                }
+
+                if (industryConditions.length > 0) {
+                  conditions.push({
+                    operator: formData.industryOperator || "OR",
+                    conditions: industryConditions,
+                  })
+                }
+              }
+
+              filterData = {
+                operator: formData.mainOperator || "AND",
+                conditions: conditions,
+              }
+            }
+          } else if (node.data?.type === "writeFileNode") {
+            const formData = node.data.formData || {}
+            outputData = {
+              provider: formData.provider || "local",
+              format: formData.format || "json",
+              path: formData.path || "/app/mock_data/output/2000_test_records_json",
+              mode: "overwrite",
+              options: {},
+            }
+          }
+        }
+
+        // Get the current DAG ID
+        const dagId = getDagId()
+
+        if (!dagId) {
+          throw new Error("No DAG ID found. Please create a workflow first.")
+        }
+
+        // Create the request body
+        const requestBody = {
+          input: inputData,
+          filter: filterData,
+          output: outputData,
+          spark_config: {
+            driver_cores: 1,
+            driver_memory: "512m",
+            executor_instances: 1,
+            executor_cores: 1,
+            executor_memory: "512m",
+          },
+          dag_id: dagId,
+        }
+
+        // Make the API call
+        setCurrentStep("making api call")
+        setApiRequestData(requestBody)
+        setShowApiVisualizer(true)
+
+        try {
+          const response = await fetch("http://localhost:3002/clients/1/file_conversion_configs/", {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+          })
+
+          if (!response.ok) {
+            throw new Error(`API error: ${response.status} ${response.statusText}`)
+          }
+
+          const result = await response.json()
+
+          // Store the config ID for future use
+          if (result && result.id) {
+            setConfigId(result.id)
+          }
+
+          // Update all nodes with success
+          setNodes((nds) =>
+            nds.map((n) => {
+              if (workflowNodes.some((wn) => wn.id === n.id)) {
+                return {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    executed: true,
+                    outputData: result,
+                    error: null,
+                  },
+                }
+              }
+              return n
+            }),
+          )
+
+          // The next steps will be handled by handleApiVisualizerComplete
+        } catch (error) {
+          console.error("Error creating file conversion config:", error)
+          throw error
+        }
+
+        return
+      }
+
+      // For non-file conversion workflows, execute each node in sequence
       for (let i = 0; i < workflowNodes.length; i++) {
         const node = workflowNodes[i]
         const nodeProgress = Math.round(((i + 1) / workflowNodes.length) * 100)
@@ -466,70 +857,36 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
           // Step 4: Processing response
           setCurrentStep("processing response")
 
-          // Generate mock output data based on node type
+          // Make real API calls based on node type
           let outputData = null
 
           if (node.data.type === "readFileNode") {
-            outputData = {
-              success: true,
-              records: [
-                {
-                  Id: "001",
-                  Name: "Acme Corporation",
-                  AccountNumber: "ACC001",
-                  Industry: "Technology",
-                  AnnualRevenue: 5000000,
-                  NumberOfEmployees: 500,
-                  BillingCity: "San Francisco",
-                  BillingState: "CA",
+            try {
+              // Make a real API call to get data
+              const response = await fetch("http://localhost:3002/files", {
+                method: "GET",
+                headers: {
+                  accept: "application/json",
                 },
-                {
-                  Id: "002",
-                  Name: "Globex Corporation",
-                  AccountNumber: "ACC002",
-                  Industry: "Healthcare",
-                  AnnualRevenue: 3000000,
-                  NumberOfEmployees: 300,
-                  BillingCity: "Boston",
-                  BillingState: "MA",
+              })
+
+              if (!response.ok) {
+                throw new Error(`API error: ${response.status} ${response.statusText}`)
+              }
+
+              const data = await response.json()
+              outputData = {
+                success: true,
+                records: data,
+                metadata: {
+                  source: node.data.formData?.source || "unknown",
+                  format: node.data.formData?.format || "json",
+                  recordCount: Array.isArray(data) ? data.length : 1,
+                  timestamp: new Date().toISOString(),
                 },
-                {
-                  Id: "003",
-                  Name: "Soylent Corp",
-                  AccountNumber: "ACC003",
-                  Industry: "Food & Beverage",
-                  AnnualRevenue: 800000,
-                  NumberOfEmployees: 150,
-                  BillingCity: "Chicago",
-                  BillingState: "IL",
-                },
-                {
-                  Id: "004",
-                  Name: "Initech",
-                  AccountNumber: "ACC004",
-                  Industry: "Technology",
-                  AnnualRevenue: 1200000,
-                  NumberOfEmployees: 200,
-                  BillingCity: "Austin",
-                  BillingState: "TX",
-                },
-                {
-                  Id: "005",
-                  Name: "Umbrella Corporation",
-                  AccountNumber: "ACC005",
-                  Industry: "Healthcare",
-                  AnnualRevenue: 7500000,
-                  NumberOfEmployees: 1000,
-                  BillingCity: "New York",
-                  BillingState: "NY",
-                },
-              ],
-              metadata: {
-                source: "/app/mock_data/test_records_2000.xml",
-                format: "xml",
-                recordCount: 5,
-                timestamp: new Date().toISOString(),
-              },
+              }
+            } catch (error) {
+              throw new Error(`Error reading file: ${error instanceof Error ? error.message : "Unknown error"}`)
             }
           } else if (node.data.type === "filterNode") {
             // Get input data from previous node
@@ -541,34 +898,38 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
               )
             }
 
-            // Apply filter: AnnualRevenue > 1000000 AND (Industry = 'Technology' OR Industry = 'Healthcare')
-            const filteredRecords = inputData.records.filter(
-              (record: any) =>
-                record.AnnualRevenue > 1000000 &&
-                (record.Industry === "Technology" || record.Industry === "Healthcare"),
-            )
+            try {
+              // Apply filter based on node configuration
+              const filterCriteria = node.data.formData?.filterCriteria || {}
 
-            outputData = {
-              success: true,
-              records: filteredRecords,
-              metadata: {
-                inputRecordCount: inputData.records.length,
-                outputRecordCount: filteredRecords.length,
-                filterCriteria: {
-                  operator: "AND",
-                  conditions: [
-                    { field: "AnnualRevenue", operation: "gt", value: 1000000 },
-                    {
-                      operator: "OR",
-                      conditions: [
-                        { field: "Industry", operation: "eq", value: "Technology" },
-                        { field: "Industry", operation: "eq", value: "Healthcare" },
-                      ],
-                    },
-                  ],
+              // This would ideally call your backend filter API
+              // For now, we'll do basic filtering on the client
+              const filteredRecords = inputData.records.filter((record: any) => {
+                // Apply basic filtering based on criteria
+                if (filterCriteria.field && filterCriteria.value) {
+                  if (filterCriteria.operation === "eq") {
+                    return record[filterCriteria.field] === filterCriteria.value
+                  } else if (filterCriteria.operation === "gt") {
+                    return record[filterCriteria.field] > filterCriteria.value
+                  } else if (filterCriteria.operation === "lt") {
+                    return record[filterCriteria.field] < filterCriteria.value
+                  }
+                }
+                return true
+              })
+
+              outputData = {
+                success: true,
+                records: filteredRecords,
+                metadata: {
+                  inputRecordCount: inputData.records.length,
+                  outputRecordCount: filteredRecords.length,
+                  filterCriteria: filterCriteria,
+                  timestamp: new Date().toISOString(),
                 },
-                timestamp: new Date().toISOString(),
-              },
+              }
+            } catch (error) {
+              throw new Error(`Error filtering data: ${error instanceof Error ? error.message : "Unknown error"}`)
             }
           } else if (node.data.type === "writeFileNode") {
             // Get input data from previous node
@@ -580,15 +941,48 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
               )
             }
 
-            outputData = {
-              success: true,
-              message: "Data successfully written to destination",
-              metadata: {
-                destination: "kmk-iscs/output/test_records_json",
-                format: "json",
-                recordCount: inputData.records.length,
-                timestamp: new Date().toISOString(),
-              },
+            try {
+              // Make a real API call to write data
+              const response = await fetch("http://localhost:3002/files", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  accept: "application/json",
+                },
+                body: JSON.stringify({
+                  data: inputData.records,
+                  destination: node.data.formData?.destination || "output",
+                  format: node.data.formData?.format || "json",
+                }),
+              })
+
+              if (!response.ok) {
+                throw new Error(`API error: ${response.status} ${response.statusText}`)
+              }
+
+              const result = await response.json()
+
+              outputData = {
+                success: true,
+                message: "Data successfully written to destination",
+                metadata: {
+                  destination: node.data.formData?.destination || "output",
+                  format: node.data.formData?.format || "json",
+                  recordCount: inputData.records.length,
+                  timestamp: new Date().toISOString(),
+                  result: result,
+                },
+              }
+            } catch (error) {
+              throw new Error(`Error writing file: ${error instanceof Error ? error.message : "Unknown error"}`)
+            }
+          } else if (node.type === "uploadFile") {
+            // For upload file nodes, the upload is handled by the node component itself
+            // We just need to check if it has output data
+            if (node.data.outputData) {
+              outputData = node.data.outputData
+            } else {
+              throw new Error("File upload not completed. Please upload a file first.")
             }
           } else {
             // Generic output for other node types
@@ -653,14 +1047,32 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
       }
 
       console.log("Workflow execution completed")
+      setIsExecuting(false)
+      setCurrentNodeId(null)
+      setCurrentStep("")
+      setExecutionPhase(0)
     } catch (error) {
       console.error("Workflow execution error:", error)
       alert(error instanceof Error ? error.message : "An error occurred during workflow execution")
-    } finally {
-      // Don't set isExecuting to false here, as we want to show the API visualizer first
-      // The API visualizer will call handleApiVisualizerComplete which will set isExecuting to false
+      setIsExecuting(false)
+      setCurrentNodeId(null)
+      setCurrentStep("")
+      setExecutionPhase(0)
     }
-  }, [nodes, edges, setNodes])
+  }, [nodes, edges, setNodes, executionPhase])
+
+  const stopExecution = useCallback(() => {
+    setIsExecuting(false)
+    setCurrentNodeId(null)
+    setCurrentStep("")
+    setExecutionPhase(0)
+    alert("Workflow execution stopped by user")
+  }, [])
+
+  // If not authenticated, show login page
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={setIsAuthenticated} />
+  }
 
   return (
     <div className="flex w-full h-screen">
@@ -709,11 +1121,17 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
               }}
             />
 
-            <Panel position="top" className="flex justify-between items-center w-full bg-white border-b p-2">
+            <Panel
+              position="top"
+              className="flex justify-between items-center w-full bg-white border-b border-gray-200 p-3"
+            >
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold">File Conversion Workflow</h1>
+                <h1 className="text-xl font-semibold text-gray-900">Mi-Ware Workflow System</h1>
+                <Button variant="outline" size="sm" className="ml-4" onClick={() => setShowCreateDagModal(true)}>
+                  <Plus size={16} className="mr-1" /> New Workflow
+                </Button>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <input
                   type="file"
                   id="load-workflow"
@@ -722,20 +1140,30 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
                   onChange={handleLoadWorkflowFromFile}
                 />
                 <label htmlFor="load-workflow">
-                  <Button variant="outline" className="cursor-pointer" as="div">
+                  <Button
+                    variant="outline"
+                    className="cursor-pointer bg-white border-gray-200 hover:bg-gray-50 text-gray-700"
+                    as="div"
+                  >
                     <Upload size={18} className="mr-1" /> Load
                   </Button>
                 </label>
                 <Button className="bg-blue-500 hover:bg-blue-600 text-white" onClick={() => setShowSaveDialog(true)}>
                   <Save size={18} className="mr-1" /> Save
                 </Button>
-                <Button
-                  className="bg-green-500 hover:bg-green-600 text-white"
-                  onClick={executeWorkflow}
-                  disabled={isExecuting}
-                >
-                  <Play size={18} className="mr-1" /> {isExecuting ? "Running..." : "Run"}
-                </Button>
+                {isExecuting ? (
+                  <Button className="bg-red-500 hover:bg-red-600 text-white" onClick={stopExecution}>
+                    <StopCircle size={18} className="mr-1" /> Stop
+                  </Button>
+                ) : (
+                  <Button
+                    className="bg-green-500 hover:bg-green-600 text-white"
+                    onClick={executeWorkflow}
+                    disabled={isExecuting}
+                  >
+                    <Play size={18} className="mr-1" /> Run
+                  </Button>
+                )}
               </div>
             </Panel>
           </ReactFlow>
@@ -754,6 +1182,13 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
               />
             )}
           </Modal>
+
+          {/* Create DAG Modal */}
+          <CreateDagModal
+            isOpen={showCreateDagModal}
+            onClose={() => setShowCreateDagModal(false)}
+            onCreateDag={handleCreateDag}
+          />
 
           {/* Workflow Progress */}
           <WorkflowProgress
@@ -787,6 +1222,9 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
               workflow={selectedWorkflow}
             />
           )}
+
+          {/* API Monitor */}
+          {showApiMonitor && <ApiMonitor />}
         </div>
       )}
     </div>
@@ -795,4 +1233,3 @@ function FlowBuilderContent({ onNodeSelect }: FlowBuilderProps) {
 
 // Export the wrapped component as default
 export default FlowBuilderWithProvider
-

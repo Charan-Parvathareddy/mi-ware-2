@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState } from "react"
-import { ChevronRight, ChevronLeft, FileText, FilterX, FileOutput, Info, Play, BarChart2 } from "lucide-react"
+import { ChevronRight, ChevronLeft, FileText, FilterX, FileOutput, Info, Play, BarChart2, FileUp } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -38,8 +38,8 @@ interface WorkflowItemProps {
 const WorkflowItem = ({ name, onSelect, onInfo, isCollapsed }: WorkflowItemProps) => (
   <div className="flex items-center justify-between p-2 hover:bg-gray-100 rounded-md">
     <div className="flex items-center gap-2 flex-1 cursor-pointer" onClick={onSelect}>
-      <Play className="w-4 h-4 text-emerald-600" />
-      {!isCollapsed && <span className="text-sm truncate">{name}</span>}
+      <Play className="w-4 h-4 text-blue-500" />
+      {!isCollapsed && <span className="text-sm truncate text-gray-700">{name}</span>}
     </div>
     {!isCollapsed && (
       <TooltipProvider>
@@ -48,13 +48,13 @@ const WorkflowItem = ({ name, onSelect, onInfo, isCollapsed }: WorkflowItemProps
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
+              className="h-6 w-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
               onClick={(e) => {
                 e.stopPropagation()
                 onInfo()
               }}
             >
-              <Info className="h-4 w-4 text-blue-500" />
+              <Info className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
@@ -90,10 +90,11 @@ export function CollapsibleSidebar({
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [activeCategory, setActiveCategory] = useState<string | null>("components")
 
-  const demoFileConversionNodes = [
+  const fileConversionNodes = [
     { type: "readFileNode", label: "Read File", icon: FileText, category: "demo-file-conversion" },
     { type: "filterNode", label: "Filter", icon: FilterX, category: "demo-file-conversion" },
     { type: "writeFileNode", label: "Write File", icon: FileOutput, category: "demo-file-conversion" },
+    { type: "uploadFile", label: "Upload File", icon: FileUp, category: "file-conversion" },
   ]
 
   const handleDragStart = (event: React.DragEvent, component: any) => {
@@ -109,12 +110,6 @@ export function CollapsibleSidebar({
     event.dataTransfer.effectAllowed = "move"
   }
 
-  const handleAddTemplate = () => {
-    if (onAddTemplate) {
-      onAddTemplate("fileConversionWorkflow")
-    }
-  }
-
   return (
     <div
       className={cn(
@@ -122,9 +117,9 @@ export function CollapsibleSidebar({
         isCollapsed ? "w-16" : "w-64",
       )}
     >
-      <div className="flex items-center justify-between p-4 border-b">
-        {!isCollapsed && <h2 className="text-lg font-semibold">Mi-Ware</h2>}
-        <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-1 rounded-md hover:bg-gray-100">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
+        {!isCollapsed && <h2 className="text-lg font-semibold text-gray-900">Mi-Ware</h2>}
+        <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-1 rounded-md hover:bg-gray-200 text-gray-700">
           {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
         </button>
       </div>
@@ -144,16 +139,16 @@ export function CollapsibleSidebar({
               <div className="p-2 bg-gray-50 rounded-md cursor-default">
                 <div className="text-sm font-medium text-gray-700 mb-2">File Conversion</div>
                 <div className="space-y-1">
-                  {demoFileConversionNodes.map((node) => (
+                  {fileConversionNodes.map((node) => (
                     <div
-                      key={`demo-file-conversion-${node.type}`}
-                      className="p-2 bg-white rounded-md cursor-move hover:bg-gray-100 transition-colors flex items-center gap-2"
+                      key={`file-conversion-${node.type}`}
+                      className="p-2 bg-white rounded-md cursor-move hover:bg-gray-100 transition-colors flex items-center gap-2 shadow-sm"
                       draggable
                       onDragStart={(e) => handleDragStart(e, node)}
                       onClick={() => onAddNode(node.type, node.label, node.icon, node.category)}
                     >
-                      <node.icon className="w-4 h-4 text-emerald-600" />
-                      <span className="text-sm">{node.label}</span>
+                      <node.icon className="w-4 h-4 text-blue-500" />
+                      <span className="text-sm text-gray-700">{node.label}</span>
                     </div>
                   ))}
                 </div>
